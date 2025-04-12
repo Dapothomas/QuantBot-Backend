@@ -16,11 +16,18 @@ CORS(app)  # Enable CORS for all routes
 data_files = {
     'btc_2023': 'BTC_Year_2023_data.csv',
     'btc_2024': 'BTC_2024_DATA.csv',
+    'btc_2022': 'BTC_2022_2023 data.csv',
     'eth_2023': 'Ethereum_Data_2023.csv',
     'eth_2024': 'Ethereum_Data_2024_2025.csv',
     'sol_2023': 'SOLANA_DATA_YEAR_2023.csv',
     'sol_2024': 'SOLANA_DATA_YEAR_2024_2025.csv',
 }
+
+# Add a health check route for Render
+@app.route('/', methods=['GET'])
+def health_check():
+    """Health check endpoint for Render"""
+    return jsonify({"status": "ok", "message": "Stochastic Oscillator Trading Bot API is running"})
 
 @app.route('/api/available-data', methods=['GET'])
 def get_available_data():
@@ -143,4 +150,6 @@ def get_strategy_info():
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000) 
+    # Use environment variables for host and port if available
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False) 
