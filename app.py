@@ -16,7 +16,7 @@ CORS(app)  # Enable CORS for all routes
 data_files = {
     'btc_2023': 'BTC_Year_2023_data.csv',
     'btc_2024': 'BTC_2024_DATA.csv',
-    'btc_2022': 'BTC_2022_2023 data.csv',
+    'btc_2022': 'BTC_Year_2022_data.csv',
     'eth_2023': 'Ethereum_Data_2023.csv',
     'eth_2024': 'Ethereum_Data_2024_2025.csv',
     'sol_2023': 'SOLANA_DATA_YEAR_2023.csv',
