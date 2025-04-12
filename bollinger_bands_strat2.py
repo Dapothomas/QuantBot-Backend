@@ -145,13 +145,25 @@ class StochasticOscillatorTrader:
         peak_balance = initial_balance
         total_trades = 0
         winning_trades = 0
+        compounding = self.config.get('compounding', 'compound')
+        static_position_size = None
 
         for i in range(1, len(data)):
             current_row = data.iloc[i]
             
             if open_position is None and current_row['Signal'] == 1:
                 entry_price = current_row['Close']
-                position_size = self.calculate_position_size(entry_price)
+                
+                # Determine position size based on compounding strategy
+                if compounding == 'compound' or static_position_size is None:
+                    position_size = self.calculate_position_size(entry_price)
+                    if compounding == 'simple' and static_position_size is None:
+                        # For simple growth, calculate position size once and keep it static
+                        static_position_size = position_size
+                else:
+                    # Use the static position size for simple growth strategy
+                    position_size = static_position_size
+                
                 net_entry_value = self.apply_trading_costs(entry_price * position_size)
                 
                 # Store the timestamp directly from the index
@@ -189,6 +201,8 @@ class StochasticOscillatorTrader:
                     balance_before = current_balance
                     exit_value = self.apply_trading_costs(exit_price * open_position['position_size'])
                     trade_profit = exit_value - (open_position['entry_price'] * open_position['position_size'])
+                    
+                    # Update balance based on compounding strategy
                     current_balance += trade_profit
 
                     if trade_result == 'win':
@@ -198,39 +212,34 @@ class StochasticOscillatorTrader:
                     current_drawdown = (peak_balance - current_balance) / peak_balance
                     max_drawdown = max(max_drawdown, current_drawdown)
 
-                    # Store the exit timestamp directly
-                    exit_time = current_row.name
-
                     trades.append({
                         'entry_time': open_position['entry_time'],
-                        'exit_time': exit_time,
+                        'exit_time': current_row.name,
                         'entry_price': open_position['entry_price'],
                         'exit_price': exit_price,
-                        'entry_k': open_position['entry_k'],
-                        'entry_d': open_position['entry_d'],
-                        'exit_k': current_row['%K'],
-                        'exit_d': current_row['%D'],
                         'position_size': open_position['position_size'],
                         'profit': trade_profit,
-                        'balance_before': balance_before,
+                        'trade_result': trade_result,
                         'balance_after': current_balance,
-                        'stop_loss': open_position['stop_loss'],
-                        'take_profit': open_position['take_profit'],
-                        'trade_result': trade_result
+                        'compounding': compounding
                     })
+                    
                     open_position = None
 
-        total_return = (current_balance - initial_balance) / initial_balance * 100
+        # Calculate performance metrics
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        
+        total_return = ((current_balance - initial_balance) / initial_balance * 100) if initial_balance > 0 else 0
+        max_drawdown_percent = max_drawdown * 100
+
         return {
-            'total_return': total_return,
-            'win_rate': win_rate,
-            'max_drawdown': max_drawdown * 100,
+            'trades': trades,
             'total_trades': total_trades,
             'winning_trades': winning_trades,
+            'total_return': total_return,
+            'win_rate': win_rate,
+            'max_drawdown': max_drawdown_percent,
             'final_balance': current_balance,
-            'trades': trades
+            'compounding': compounding
         }
 
     def paper_trade(self):
