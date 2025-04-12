@@ -23,6 +23,17 @@ data_files = {
     'sol_2024': 'SOLANA_DATA_YEAR_2024_2025.csv',
 }
 
+# Historical context for each dataset
+historical_context = {
+    'btc_2022': "2022 was Bitcoin's bear market year, with major crashes following the collapse of Terra Luna in May and FTX in November. BTC fell from ~$47,000 to under $17,000, a 65% decline. This dataset captures trading during extreme market stress.",
+    'btc_2023': "2023 was a recovery year for Bitcoin following the 2022 bear market. BTC started at ~$16,500 and ended around $42,000, rising 150%. The market showed resilience despite regulatory crackdowns and banking issues in March.",
+    'btc_2024': "2024 began with Bitcoin's ETF approval in January, creating significant momentum. Bitcoin reached new all-time highs above $73,000 in March following its fourth halving, then entered a consolidation phase.",
+    'eth_2023': "Ethereum in 2023 emerged from its post-Merge phase, showing stability after transitioning to Proof of Stake in 2022. ETH price ranged from ~$1,200 to ~$2,400, with increased focus on Layer 2 scaling solutions.",
+    'eth_2024': "2024 saw Ethereum gain momentum with the Dencun upgrade in March, significantly reducing Layer 2 transaction costs. ETH price action was influenced by Bitcoin's ETF approval and speculation about Ethereum's own ETF prospects.",
+    'sol_2023': "Solana experienced a remarkable recovery in 2023 after FTX's collapse threatened the ecosystem in 2022. SOL rose from $10 to over $100 by year-end, a 1000% increase, regaining developer and user trust.",
+    'sol_2024': "Solana continued its strong momentum in 2024 with increasing adoption, improved stability, and expansion of its DeFi and NFT ecosystems. SOL maintained competition with Ethereum while focusing on performance and reliability."
+}
+
 # Add a health check route for Render
 @app.route('/', methods=['GET'])
 def health_check():
@@ -31,13 +42,17 @@ def health_check():
 
 @app.route('/api/available-data', methods=['GET'])
 def get_available_data():
-    """Return a list of available data files for backtesting"""
-    return jsonify({
-        'data_options': [
-            {'id': key, 'name': f"{key.split('_')[0].upper()} {key.split('_')[1]}"} 
-            for key in data_files.keys()
-        ]
-    })
+    """Return a list of available data files for backtesting with historical context"""
+    data_options = []
+    for key in data_files.keys():
+        option = {
+            'id': key, 
+            'name': f"{key.split('_')[0].upper()} {key.split('_')[1]}",
+            'context': historical_context.get(key, "")
+        }
+        data_options.append(option)
+        
+    return jsonify({'data_options': data_options})
 
 @app.route('/api/backtest', methods=['POST'])
 def run_backtest():
