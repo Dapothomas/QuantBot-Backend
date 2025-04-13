@@ -80,7 +80,10 @@ def run_backtest():
             'risk_percentage': float(params.get('risk_percentage', 1)),
             'trading_symbol': params.get('trading_symbol', 'BTCUSDT'),
             'k_period': int(params.get('k_period', 15)),
-            'd_period': int(params.get('d_period', 5))
+            'd_period': int(params.get('d_period', 5)),
+            'position_sizing': params.get('position_sizing', 'percentage'),
+            'fixed_position_size': float(params.get('fixed_position_size', 0.1)),
+            'position_size_percentage': float(params.get('position_size_percentage', 90))
         }
         
         # Initialize trader

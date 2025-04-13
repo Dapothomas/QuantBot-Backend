@@ -28,7 +28,10 @@ class SecureConfigManager:
                 'risk_percentage': float(os.getenv('RISK_PERCENTAGE', 1)),
                 'testnet': os.getenv('BINANCE_TESTNET', 'False').lower() == 'true',
                 'k_period': int(os.getenv('STOCHASTIC_K_PERIOD', 15)),
-                'd_period': int(os.getenv('STOCHASTIC_D_PERIOD', 5))
+                'd_period': int(os.getenv('STOCHASTIC_D_PERIOD', 5)),
+                'position_sizing': os.getenv('POSITION_SIZING', 'percentage'),
+                'fixed_position_size': float(os.getenv('FIXED_POSITION_SIZE', 0.1)),
+                'position_size_percentage': int(os.getenv('POSITION_SIZE_PERCENTAGE', 90))
             }
             
             if not config['binance_api_key'] or not config['binance_secret_key']:
@@ -91,8 +94,11 @@ class StochasticOscillatorTrader:
         self.open_position = None
         self.trade_log = []
         self.slippage = 0.0003
-        self.k_period = 15  #GOOD self.k_period = 14,19,15,16,17 BEST 15
-        self.d_period = 5   #GOOD self.d_period = 5,5            BEST 5
+        self.k_period = config.get('k_period', 15)  # Default: 15
+        self.d_period = config.get('d_period', 5)   # Default: 5
+        self.position_sizing = config.get('position_sizing', 'percentage')  # Default: percentage
+        self.fixed_position_size = config.get('fixed_position_size', 0.1)  # Default: 0.1 BTC/ETH
+        self.position_size_percentage = config.get('position_size_percentage', 90)  # Default: 90% of balance
         
         
 
@@ -118,14 +124,14 @@ class StochasticOscillatorTrader:
         return data
 
     def calculate_position_size(self, entry_price: float) -> float:
-        # Use risk_percentage directly as the percentage of account to use for position sizing
-        # This gives users direct control over how much of their account is used for each trade
-        position_value = self.balance * (self.risk_percentage / 100)
-        position_size = position_value / entry_price
-        
-        # Only limit by total available balance (minus fees)
-        max_position_size = self.balance / (entry_price * (1 + self.commission_rate + self.slippage))
-        return min(position_size, max_position_size)
+        if self.position_sizing == 'fixed':
+            # Use fixed size (e.g., 0.1 BTC per trade)
+            return self.fixed_position_size
+        else:
+            # Use percentage of balance (default)
+            available_balance = self.balance * (self.position_size_percentage / 100)
+            position_size = available_balance / entry_price
+            return min(position_size, self.balance / entry_price)
 
     def apply_trading_costs(self, trade_value: float) -> float:
         commission = trade_value * self.commission_rate
