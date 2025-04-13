@@ -118,9 +118,14 @@ class StochasticOscillatorTrader:
         return data
 
     def calculate_position_size(self, entry_price: float) -> float:
-        risk_amount = self.balance * 0.9
-        position_size = risk_amount / entry_price
-        return min(position_size, self.balance / entry_price)
+        # Use risk_percentage directly as the percentage of account to use for position sizing
+        # This gives users direct control over how much of their account is used for each trade
+        position_value = self.balance * (self.risk_percentage / 100)
+        position_size = position_value / entry_price
+        
+        # Only limit by total available balance (minus fees)
+        max_position_size = self.balance / (entry_price * (1 + self.commission_rate + self.slippage))
+        return min(position_size, max_position_size)
 
     def apply_trading_costs(self, trade_value: float) -> float:
         commission = trade_value * self.commission_rate
@@ -145,25 +150,13 @@ class StochasticOscillatorTrader:
         peak_balance = initial_balance
         total_trades = 0
         winning_trades = 0
-        compounding = self.config.get('compounding', 'compound')
-        static_position_size = None
 
         for i in range(1, len(data)):
             current_row = data.iloc[i]
             
             if open_position is None and current_row['Signal'] == 1:
                 entry_price = current_row['Close']
-                
-                # Determine position size based on compounding strategy
-                if compounding == 'compound' or static_position_size is None:
-                    position_size = self.calculate_position_size(entry_price)
-                    if compounding == 'simple' and static_position_size is None:
-                        # For simple growth, calculate position size once and keep it static
-                        static_position_size = position_size
-                else:
-                    # Use the static position size for simple growth strategy
-                    position_size = static_position_size
-                
+                position_size = self.calculate_position_size(entry_price)
                 net_entry_value = self.apply_trading_costs(entry_price * position_size)
                 
                 # Store the timestamp directly from the index
@@ -201,8 +194,6 @@ class StochasticOscillatorTrader:
                     balance_before = current_balance
                     exit_value = self.apply_trading_costs(exit_price * open_position['position_size'])
                     trade_profit = exit_value - (open_position['entry_price'] * open_position['position_size'])
-                    
-                    # Update balance based on compounding strategy
                     current_balance += trade_profit
 
                     if trade_result == 'win':
@@ -212,34 +203,39 @@ class StochasticOscillatorTrader:
                     current_drawdown = (peak_balance - current_balance) / peak_balance
                     max_drawdown = max(max_drawdown, current_drawdown)
 
+                    # Store the exit timestamp directly
+                    exit_time = current_row.name
+
                     trades.append({
                         'entry_time': open_position['entry_time'],
-                        'exit_time': current_row.name,
+                        'exit_time': exit_time,
                         'entry_price': open_position['entry_price'],
                         'exit_price': exit_price,
+                        'entry_k': open_position['entry_k'],
+                        'entry_d': open_position['entry_d'],
+                        'exit_k': current_row['%K'],
+                        'exit_d': current_row['%D'],
                         'position_size': open_position['position_size'],
                         'profit': trade_profit,
-                        'trade_result': trade_result,
+                        'balance_before': balance_before,
                         'balance_after': current_balance,
-                        'compounding': compounding
+                        'stop_loss': open_position['stop_loss'],
+                        'take_profit': open_position['take_profit'],
+                        'trade_result': trade_result
                     })
-                    
                     open_position = None
 
-        # Calculate performance metrics
+        total_return = (current_balance - initial_balance) / initial_balance * 100
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        total_return = ((current_balance - initial_balance) / initial_balance * 100) if initial_balance > 0 else 0
-        max_drawdown_percent = max_drawdown * 100
-
+        
         return {
-            'trades': trades,
-            'total_trades': total_trades,
-            'winning_trades': winning_trades,
             'total_return': total_return,
             'win_rate': win_rate,
-            'max_drawdown': max_drawdown_percent,
+            'max_drawdown': max_drawdown * 100,
+            'total_trades': total_trades,
+            'winning_trades': winning_trades,
             'final_balance': current_balance,
-            'compounding': compounding
+            'trades': trades
         }
 
     def paper_trade(self):
