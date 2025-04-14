@@ -31,7 +31,7 @@ class SecureConfigManager:
                 'd_period': int(os.getenv('STOCHASTIC_D_PERIOD', 5)),
                 'position_sizing': os.getenv('POSITION_SIZING', 'percentage'),
                 'fixed_position_size': float(os.getenv('FIXED_POSITION_SIZE', 0.1)),
-                'position_size_percentage': int(os.getenv('POSITION_SIZE_PERCENTAGE', 90))
+                'position_size_percentage': float(os.getenv('POSITION_SIZE_PERCENTAGE', 90))
             }
             
             if not config['binance_api_key'] or not config['binance_secret_key']:
@@ -94,12 +94,11 @@ class StochasticOscillatorTrader:
         self.open_position = None
         self.trade_log = []
         self.slippage = 0.0003
-        self.k_period = 15  #GOOD self.k_period = 14,19,15,16,17 BEST 15
-        self.d_period = 5   #GOOD self.d_period = 5,5            BEST 5
+        self.k_period = config.get('k_period', 15)  # Default: 15
+        self.d_period = config.get('d_period', 5)   # Default: 5
         self.position_sizing = config.get('position_sizing', 'percentage')  # Default: percentage
         self.fixed_position_size = config.get('fixed_position_size', 0.1)  # Default: 0.1 BTC/ETH
         self.position_size_percentage = config.get('position_size_percentage', 90)  # Default: 90% of balance
-        
         
 
     def calculate_stochastic_oscillator(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -166,31 +165,21 @@ class StochasticOscillatorTrader:
             if open_position is None and current_row['Signal'] == 1:
                 entry_price = current_row['Close']
                 position_size = self.calculate_position_size(entry_price)
+                net_entry_value = self.apply_trading_costs(entry_price * position_size)
                 
-                # Calculate the cost of entry including fees
-                entry_cost = entry_price * position_size
-                entry_fee = entry_cost * self.commission_rate
-                total_entry_cost = entry_cost + entry_fee
+                # Store the timestamp directly from the index
+                entry_time = current_row.name
                 
-                # Ensure we have enough balance for the trade
-                if total_entry_cost <= current_balance:
-                    # Deduct the cost from current balance
-                    current_balance -= total_entry_cost
-                    
-                    # Store the timestamp directly from the index
-                    entry_time = current_row.name
-                    
-                    open_position = {
-                        'entry_price': entry_price,
-                        'position_size': position_size,
-                        'entry_time': entry_time,  # Store the pandas Timestamp object directly
-                        'entry_k': current_row['%K'],
-                        'entry_d': current_row['%D'],
-                        'stop_loss': entry_price * 0.99,
-                        'take_profit': entry_price * 1.1,
-                        'entry_cost': total_entry_cost
-                    }
-                    total_trades += 1
+                open_position = {
+                    'entry_price': entry_price,
+                    'position_size': position_size,
+                    'entry_time': entry_time,  # Store the pandas Timestamp object directly
+                    'entry_k': current_row['%K'],
+                    'entry_d': current_row['%D'],
+                    'stop_loss': entry_price * 0.99,
+                    'take_profit': entry_price * 1.1
+                }
+                total_trades += 1
             
             elif open_position is not None:
                 exit_condition = False
@@ -210,23 +199,16 @@ class StochasticOscillatorTrader:
                         trade_result = 'win'
 
                 if exit_condition:
-                    # Calculate exit value including fees
-                    exit_value = exit_price * open_position['position_size']
-                    exit_fee = exit_value * self.commission_rate
-                    net_exit_value = exit_value - exit_fee
-                    
                     balance_before = current_balance
-                    # Add the net exit value to current balance
-                    current_balance += net_exit_value
-                    
-                    # Calculate profit/loss for the trade
-                    trade_profit = net_exit_value - open_position['entry_cost']
+                    exit_value = self.apply_trading_costs(exit_price * open_position['position_size'])
+                    trade_profit = exit_value - (open_position['entry_price'] * open_position['position_size'])
+                    current_balance += trade_profit
 
                     if trade_result == 'win':
                         winning_trades += 1
 
                     peak_balance = max(peak_balance, current_balance)
-                    current_drawdown = (peak_balance - current_balance) / peak_balance if peak_balance > 0 else 0
+                    current_drawdown = (peak_balance - current_balance) / peak_balance
                     max_drawdown = max(max_drawdown, current_drawdown)
 
                     # Store the exit timestamp directly
@@ -251,7 +233,7 @@ class StochasticOscillatorTrader:
                     })
                     open_position = None
 
-        total_return = ((current_balance - initial_balance) / initial_balance) * 100
+        total_return = (current_balance - initial_balance) / initial_balance * 100
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
         return {
@@ -299,23 +281,18 @@ class StochasticOscillatorTrader:
                         position_size = self.calculate_position_size(live_price)
                         trade_cost = live_price * position_size
                         fee = trade_cost * self.commission_rate
-                        total_cost = trade_cost + fee
 
-                        if total_cost > self.balance:
+                        if trade_cost + fee > self.balance:
                             print("❌ No buy execution: Insufficient balance")
-                            print(f"  Required: ${total_cost:.2f}, Available: ${self.balance:.2f}")
-                            print(f"  Maximum affordable position: {(self.balance / live_price):.6f} {self.config['trading_symbol']}")
                         else:
-                            self.balance -= total_cost
+                            self.balance -= (trade_cost + fee)
                             self.open_position = {
                                 "entry_price": live_price,
                                 "size": position_size,
-                                "entry_cost": total_cost,
                                 "buy_time": time.strftime("%Y-%m-%d %H:%M:%S")
                             }
                             print(f"✅ BUY EXECUTED! {position_size} {self.config['trading_symbol']} at {live_price}")
-                            print(f"  Cost: ${total_cost:.2f} (incl. ${fee:.2f} fee)")
-                            print(f"  New Balance: ${self.balance:.2f}")
+                            print(f"New Balance: ${self.balance:.2f}")
 
                 # Sell condition checks
                 else:
@@ -331,25 +308,21 @@ class StochasticOscillatorTrader:
                     if (current_k < current_d) and (prev_k >= prev_d) and (current_k > 80):
                         sell_value = live_price * self.open_position["size"]
                         fee = sell_value * self.commission_rate
-                        net_value = sell_value - fee
-                        profit = net_value - self.open_position["entry_cost"]
-                        profit_percent = (profit / self.open_position["entry_cost"]) * 100
+                        profit = (sell_value - (self.open_position["entry_price"] * self.open_position["size"])) - fee
 
-                        self.balance += net_value
+                        self.balance += (sell_value - fee)
                         self.trade_log.append({
                             "entry_price": self.open_position["entry_price"],
                             "exit_price": live_price,
                             "profit": profit,
-                            "profit_percent": profit_percent,
                             "size": self.open_position["size"],
                             "buy_time": self.open_position["buy_time"],
                             "sell_time": time.strftime("%Y-%m-%d %H:%M:%S"),
                         })
 
                         print(f"✅ SELL EXECUTED! {self.open_position['size']} {self.config['trading_symbol']} at {live_price}")
-                        print(f"  Net Value: ${net_value:.2f} (after ${fee:.2f} fee)")
-                        print(f"  Profit/Loss: ${profit:.2f} ({profit_percent:.2f}%)")
-                        print(f"  New Balance: ${self.balance:.2f}")
+                        print(f"Profit from Trade: ${profit:.2f}")
+                        print(f"New Balance: ${self.balance:.2f}")
                         self.open_position = None
 
                 

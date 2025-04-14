@@ -74,29 +74,15 @@ def run_backtest():
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             df.set_index('timestamp', inplace=True)
         
-        # Get average price for first set of candles to validate position size
-        initial_balance = float(params.get('initial_balance', 10000))
-        position_sizing = params.get('position_sizing', 'percentage')
-        fixed_position_size = float(params.get('fixed_position_size', 0.1))
-        
-        # Validate fixed position size against initial balance
-        if position_sizing == 'fixed' and len(df) > 0:
-            avg_price = df['Close'].iloc[0:10].mean()
-            if avg_price * fixed_position_size > initial_balance:
-                # Calculate maximum affordable position size
-                max_affordable = initial_balance / avg_price * 0.98  # 2% buffer for fees
-                fixed_position_size = max_affordable
-                print(f"Position size adjusted to {fixed_position_size} based on initial balance")
-        
         # Create configuration
         config = {
-            'initial_balance': initial_balance,
+            'initial_balance': float(params.get('initial_balance', 10000)),
             'risk_percentage': float(params.get('risk_percentage', 1)),
             'trading_symbol': params.get('trading_symbol', 'BTCUSDT'),
             'k_period': int(params.get('k_period', 15)),
             'd_period': int(params.get('d_period', 5)),
-            'position_sizing': position_sizing,
-            'fixed_position_size': fixed_position_size,
+            'position_sizing': params.get('position_sizing', 'percentage'),
+            'fixed_position_size': float(params.get('fixed_position_size', 0.1)),
             'position_size_percentage': float(params.get('position_size_percentage', 90))
         }
         
